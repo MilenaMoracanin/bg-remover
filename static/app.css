@@ -277,6 +277,67 @@ fieldset:disabled { opacity: 0.45; }
 #run { width: 100%; font-size: 16px; }
 #run:disabled { opacity: 0.45; cursor: default; }
 
+.folder-panel {
+  margin-top: 22px;
+  padding: 22px;
+  background: var(--card);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.folder-note, .path-label {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.folder-note { margin: 8px 0 16px; }
+
+.path-label { display: block; margin-bottom: 6px; }
+
+.path-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.path-row input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 11px 12px;
+  background: #fffdf8;
+}
+
+.path-row button, #run-folder, #stop-folder {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.path-row button, #stop-folder {
+  background: transparent;
+  border: 1px solid var(--ink);
+  padding: 10px 14px;
+}
+
+#run-folder {
+  background: var(--ink);
+  color: #f6f3ec;
+  padding: 12px 18px;
+}
+
+#run-folder:disabled { opacity: 0.45; cursor: default; }
+
+.folder-actions { display: flex; gap: 8px; align-items: center; }
+
+.folder-errors {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #8a3d22;
+  font-size: 13px;
+}
+
 .results { margin-top: 22px; padding: 22px; }
 .results-head, .card-actions {
   display: flex;

@@ -385,5 +385,122 @@ async function pollStatus() {
   setTimeout(pollStatus, 1500);
 }
 
+const sourceDir = document.querySelector("#source-dir");
+const destDir = document.querySelector("#dest-dir");
+const pickSource = document.querySelector("#pick-source");
+const pickDest = document.querySelector("#pick-dest");
+const runFolder = document.querySelector("#run-folder");
+const stopFolder = document.querySelector("#stop-folder");
+const folderProgress = document.querySelector("#folder-progress");
+const folderErrors = document.querySelector("#folder-errors");
+let folderJobId = "";
+
+async function chooseFolder(kind, input) {
+  input.placeholder = "Čekam izbor foldera…";
+  try {
+    const response = await fetch(`/api/pick-folder?kind=${kind}`, { method: "POST" });
+    const payload = await response.json();
+    if (payload.path) input.value = payload.path;
+  } catch (_) {
+    folderProgress.textContent = "Izbor foldera nije uspeo. Nalepi putanju ručno.";
+  }
+}
+
+pickSource.addEventListener("click", () => chooseFolder("source", sourceDir));
+pickDest.addEventListener("click", () => chooseFolder("dest", destDir));
+
+function renderFolderErrors(errors) {
+  folderErrors.innerHTML = "";
+  for (const item of errors) {
+    const line = document.createElement("li");
+    line.textContent = `${item.file}: ${item.message}`;
+    folderErrors.append(line);
+  }
+}
+
+function folderMessage(payload) {
+  if (payload.state === "running") {
+    const left = Math.max(payload.total - payload.done, 0);
+    let estimate = "";
+    if (payload.done > 0 && left > 0) {
+      const minutes = Math.max(1, Math.round((left * payload.elapsed) / payload.done / 60));
+      estimate = ` Ostalo oko ${minutes} min.`;
+    }
+    const name = payload.current || "pripremam";
+    return `Obrađujem ${Math.min(payload.done + 1, payload.total)} od ${payload.total}: ${name}.${estimate}`;
+  }
+  if (payload.state === "stopped") {
+    return `Zaustavljeno. Sačuvano ${payload.saved} od ${payload.total}.`;
+  }
+  return `Gotovo. Sačuvano ${payload.saved} od ${payload.total} u ${payload.destination}.`;
+}
+
+async function watchFolder() {
+  if (!folderJobId) return;
+  try {
+    const response = await fetch(`/api/folder/${folderJobId}`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    folderProgress.textContent = folderMessage(payload);
+    renderFolderErrors(payload.errors || []);
+    if (payload.state === "running") {
+      setTimeout(watchFolder, 1000);
+      return;
+    }
+  } catch (_) {
+    folderProgress.textContent = "Veza sa programom je prekinuta.";
+  }
+  runFolder.disabled = false;
+  stopFolder.hidden = true;
+  folderJobId = "";
+}
+
+runFolder.addEventListener("click", async () => {
+  if (folderJobId) return;
+  const preset = selectedPreset();
+  runFolder.disabled = true;
+  stopFolder.hidden = false;
+  folderProgress.textContent = "Tražim slike u folderu…";
+  folderErrors.innerHTML = "";
+  try {
+    const response = await fetch("/api/folder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: sourceDir.value.trim(),
+        destination: destDir.value.trim(),
+        background: preset.width === 0 ? "transparent" : background,
+        width: preset.width,
+        height: preset.height,
+        padding: Number(paddingInput.value) / 100,
+        shadow: shadowInput.checked,
+        image_format: preset.format,
+        anchor: preset.anchor,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      folderProgress.textContent = payload.detail || "Obrada foldera nije počela.";
+      runFolder.disabled = false;
+      stopFolder.hidden = true;
+      return;
+    }
+    folderJobId = payload.id;
+    folderProgress.textContent = `Nađeno ${payload.total} slika. Prva traje oko 20 sekundi.`;
+    watchFolder();
+  } catch (_) {
+    folderProgress.textContent = "Program nije pokrenut. Dvoklikni pokreni.command.";
+    runFolder.disabled = false;
+    stopFolder.hidden = true;
+  }
+});
+
+stopFolder.addEventListener("click", async () => {
+  if (!folderJobId) return;
+  stopFolder.disabled = true;
+  await fetch(`/api/folder/${folderJobId}/stop`, { method: "POST" });
+  stopFolder.disabled = false;
+});
+
 applyPreset("kp");
 pollStatus();

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pozadina</title>
-    <link rel="stylesheet" href="/static/app.css?v=3" />
+    <link rel="stylesheet" href="/static/app.css?v=4" />
   </head>
   <body>
     <header class="top">
@@ -58,6 +58,27 @@
         </form>
       </section>
 
+      <section class="folder-panel" id="folders">
+        <h2>Ceo folder</h2>
+        <p class="folder-note">Obrađuje sve slike u folderu i podfolderima. Gotove slike idu u drugi folder, sa istim rasporedom. Važi izgled oglasa izabran iznad.</p>
+        <label class="path-label" for="source-dir">Folder sa slikama</label>
+        <div class="path-row">
+          <input id="source-dir" type="text" placeholder="Izaberi ili nalepi putanju" />
+          <button id="pick-source" type="button">Izaberi</button>
+        </div>
+        <label class="path-label" for="dest-dir">Folder za gotove slike</label>
+        <div class="path-row">
+          <input id="dest-dir" type="text" placeholder="Novi folder, van originala" />
+          <button id="pick-dest" type="button">Izaberi</button>
+        </div>
+        <div class="folder-actions">
+          <button id="run-folder" type="button">Obradi ceo folder</button>
+          <button id="stop-folder" type="button" hidden>Zaustavi</button>
+        </div>
+        <p id="folder-progress" class="progress"></p>
+        <ul id="folder-errors" class="folder-errors"></ul>
+      </section>
+
       <section id="results" class="results" hidden>
         <div class="results-head">
           <h2>Spremno za oglas</h2>
@@ -70,6 +91,6 @@
     <footer>
       <p>Slike se obrađuju na ovom računaru i ne šalju se nigde. Sa gotove slike su skinuti i podaci o mestu snimanja.</p>
     </footer>
-    <script src="/static/app.js?v=3"></script>
+    <script src="/static/app.js?v=4"></script>
   </body>
 </html>
