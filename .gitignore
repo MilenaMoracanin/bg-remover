@@ -1,5 +1,6 @@
 .venv/
 pozadina.log
+pozadina.err.log
 pozadina.pid
 __pycache__/
 *.pyc
