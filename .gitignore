@@ -1,0 +1,7 @@
+.venv/
+pozadina.log
+pozadina.pid
+__pycache__/
+*.pyc
+models/*.onnx
+.DS_Store

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="sr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pozadina</title>
+    <link rel="stylesheet" href="/static/app.css?v=3" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <div>
+          <p class="eyebrow">Lokalni studio</p>
+          <h1>Pozadina</h1>
+        </div>
+      </div>
+      <p id="status" class="status">Proveravam model…</p>
+    </header>
+
+    <main>
+      <section class="workspace">
+        <div class="source">
+          <div id="drop" class="drop" tabindex="0">
+            <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple />
+            <p class="drop-title">Prevuci slike proizvoda ovde</p>
+            <p class="drop-note">ili klikni da izabereš JPG, PNG, WEBP ili HEIC</p>
+          </div>
+          <ul id="queue" class="queue"></ul>
+        </div>
+
+        <form id="settings" class="settings">
+          <h2>Izgled oglasa</h2>
+          <div id="presets" class="presets"></div>
+
+          <fieldset id="color-field">
+            <legend>Boja pozadine</legend>
+            <div id="swatches" class="swatches"></div>
+            <label class="color-custom">
+              Druga boja
+              <input id="color" type="color" value="#ffffff" />
+            </label>
+          </fieldset>
+
+          <label class="slider">
+            <span>Razmak oko proizvoda <strong id="padding-value">9%</strong></span>
+            <input id="padding" type="range" min="2" max="22" value="9" />
+          </label>
+
+          <label class="check">
+            <input id="shadow" type="checkbox" checked />
+            Meka senka ispod proizvoda
+          </label>
+
+          <p id="spec" class="spec"></p>
+          <button id="run" type="button" disabled>Ukloni pozadinu</button>
+          <p id="progress" class="progress" hidden></p>
+        </form>
+      </section>
+
+      <section id="results" class="results" hidden>
+        <div class="results-head">
+          <h2>Spremno za oglas</h2>
+          <button id="zip" type="button">Preuzmi sve</button>
+        </div>
+        <div id="grid" class="grid"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Slike se obrađuju na ovom računaru i ne šalju se nigde. Sa gotove slike su skinuti i podaci o mestu snimanja.</p>
+    </footer>
+    <script src="/static/app.js?v=3"></script>
+  </body>
+</html>

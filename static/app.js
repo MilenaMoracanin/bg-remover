@@ -1,0 +1,389 @@
+const PRESETS = {
+  kp: {
+    name: "KupujemProdajem",
+    detail: "Bela pozadina, kvadrat 1200",
+    background: "#ffffff",
+    width: 1200,
+    height: 1200,
+    padding: 9,
+    shadow: true,
+    format: "jpeg",
+    anchor: 0.5,
+    ratio: "1 / 1",
+  },
+  ig_feed: {
+    name: "Instagram objava",
+    detail: "4:5, svetla studio pozadina",
+    background: "#f3f1ec",
+    width: 1080,
+    height: 1350,
+    padding: 11,
+    shadow: true,
+    format: "jpeg",
+    anchor: 0.48,
+    ratio: "4 / 5",
+  },
+  ig_square: {
+    name: "Instagram kvadrat",
+    detail: "1080×1080, bela pozadina",
+    background: "#ffffff",
+    width: 1080,
+    height: 1080,
+    padding: 10,
+    shadow: true,
+    format: "jpeg",
+    anchor: 0.5,
+    ratio: "1 / 1",
+  },
+  ig_story: {
+    name: "Instagram priča",
+    detail: "9:16, proizvod iznad dugmadi",
+    background: "#f6f4ef",
+    width: 1080,
+    height: 1920,
+    padding: 14,
+    shadow: true,
+    format: "jpeg",
+    anchor: 0.36,
+    ratio: "9 / 16",
+  },
+  transparent: {
+    name: "Providna PNG",
+    detail: "Bez pozadine, za Canva",
+    background: "transparent",
+    width: 0,
+    height: 0,
+    padding: 4,
+    shadow: false,
+    format: "png",
+    anchor: 0.5,
+    ratio: "1 / 1",
+  },
+};
+
+const SWATCHES = ["#ffffff", "#f3f1ec", "#e7e2d6", "#d9d9d9", "#1c1915"];
+
+const files = [];
+let presetId = "kp";
+let background = PRESETS.kp.background;
+let jobId = "";
+
+const drop = document.querySelector("#drop");
+const fileInput = document.querySelector("#file");
+const queue = document.querySelector("#queue");
+const presets = document.querySelector("#presets");
+const swatches = document.querySelector("#swatches");
+const colorInput = document.querySelector("#color");
+const colorField = document.querySelector("#color-field");
+const paddingInput = document.querySelector("#padding");
+const paddingValue = document.querySelector("#padding-value");
+const shadowInput = document.querySelector("#shadow");
+const spec = document.querySelector("#spec");
+const runButton = document.querySelector("#run");
+const progress = document.querySelector("#progress");
+const statusEl = document.querySelector("#status");
+const results = document.querySelector("#results");
+const grid = document.querySelector("#grid");
+const zipButton = document.querySelector("#zip");
+
+function selectedPreset() {
+  return PRESETS[presetId];
+}
+
+function renderPresets() {
+  presets.innerHTML = "";
+  for (const [id, preset] of Object.entries(PRESETS)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "preset" + (id === presetId ? " selected" : "");
+    const ratio = document.createElement("span");
+    ratio.className = "ratio";
+    ratio.style.width = id === "ig_story" ? "18px" : id === "ig_feed" ? "24px" : "32px";
+    const text = document.createElement("span");
+    const name = document.createElement("strong");
+    name.textContent = preset.name;
+    const detail = document.createElement("span");
+    detail.textContent = preset.detail;
+    text.append(name, detail);
+    button.append(ratio, text);
+    button.addEventListener("click", () => applyPreset(id));
+    presets.append(button);
+  }
+}
+
+function renderSwatches() {
+  swatches.innerHTML = "";
+  for (const color of SWATCHES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "swatch" + (background === color ? " selected" : "");
+    button.style.background = color;
+    button.setAttribute("aria-label", color);
+    button.addEventListener("click", () => {
+      background = color;
+      colorInput.value = color;
+      renderSwatches();
+      updateSpec();
+    });
+    swatches.append(button);
+  }
+}
+
+function applyPreset(id) {
+  presetId = id;
+  const preset = PRESETS[id];
+  background = preset.background;
+  paddingInput.value = String(preset.padding);
+  shadowInput.checked = preset.shadow;
+  if (preset.background !== "transparent") colorInput.value = preset.background;
+  renderPresets();
+  renderSwatches();
+  updateSpec();
+}
+
+function updateSpec() {
+  const preset = selectedPreset();
+  const transparent = preset.format === "png" && preset.width === 0;
+  paddingValue.textContent = `${paddingInput.value}%`;
+  colorField.disabled = transparent;
+  shadowInput.disabled = transparent;
+  if (transparent) {
+    spec.textContent = "PNG bez pozadine, u veličini proizvoda. Pogodno za Canva.";
+  } else {
+    const shadow = shadowInput.checked ? "sa senkom" : "bez senke";
+    spec.textContent = `JPEG · ${preset.width}×${preset.height} · ${shadow}`;
+  }
+  runButton.disabled = files.length === 0 || runButton.dataset.busy === "1";
+}
+
+function addFiles(list) {
+  for (const file of list) {
+    if (!file.type.startsWith("image/") && !/\.(heic|heif)$/i.test(file.name)) continue;
+    if (files.length >= 30) break;
+    files.push(file);
+  }
+  renderQueue();
+  updateSpec();
+}
+
+function renderQueue() {
+  queue.innerHTML = "";
+  files.forEach((file, index) => {
+    const item = document.createElement("li");
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(file);
+    img.alt = "";
+    const text = document.createElement("div");
+    const name = document.createElement("p");
+    name.className = "name";
+    name.textContent = file.name;
+    const meta = document.createElement("p");
+    meta.className = "meta";
+    meta.textContent = `${Math.max(1, Math.round(file.size / 1024))} KB`;
+    text.append(name, meta);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", "Ukloni");
+    remove.addEventListener("click", () => {
+      URL.revokeObjectURL(img.src);
+      files.splice(index, 1);
+      renderQueue();
+      updateSpec();
+    });
+    item.append(img, text, remove);
+    queue.append(item);
+  });
+}
+
+drop.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  drop.classList.add("over");
+});
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (event) => {
+  event.preventDefault();
+  drop.classList.remove("over");
+  addFiles(event.dataTransfer.files);
+});
+fileInput.addEventListener("change", () => {
+  addFiles(fileInput.files);
+  fileInput.value = "";
+});
+
+paddingInput.addEventListener("input", updateSpec);
+shadowInput.addEventListener("change", updateSpec);
+colorInput.addEventListener("input", () => {
+  background = colorInput.value.toLowerCase();
+  renderSwatches();
+  updateSpec();
+});
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function resultCard(file, blob, filename, width, height, seconds) {
+  const card = document.createElement("article");
+  card.className = "card";
+  const compare = document.createElement("div");
+  compare.className = "compare";
+  compare.style.setProperty("--ratio", `${width} / ${height}`);
+
+  const after = document.createElement("img");
+  after.className = "after";
+  after.src = URL.createObjectURL(blob);
+  after.alt = "Slika bez pozadine";
+
+  const before = document.createElement("img");
+  before.className = "before";
+  before.src = URL.createObjectURL(file);
+  before.alt = "Original";
+
+  const beforeTag = document.createElement("span");
+  beforeTag.className = "tag before";
+  beforeTag.textContent = "Pre";
+  const afterTag = document.createElement("span");
+  afterTag.className = "tag after";
+  afterTag.textContent = "Posle";
+
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = "0";
+  slider.max = "100";
+  slider.value = "50";
+  slider.addEventListener("input", () => {
+    before.style.clipPath = `inset(0 ${100 - Number(slider.value)}% 0 0)`;
+  });
+
+  compare.append(after, before, beforeTag, afterTag, slider);
+
+  const title = document.createElement("h3");
+  title.textContent = filename;
+  const meta = document.createElement("p");
+  meta.className = "meta";
+  meta.textContent = `${width}×${height} · ${seconds} s`;
+
+  const actions = document.createElement("div");
+  actions.className = "card-actions";
+  const download = document.createElement("button");
+  download.type = "button";
+  download.textContent = "Preuzmi";
+  download.addEventListener("click", () => saveBlob(blob, filename));
+  actions.append(download);
+
+  card.append(compare, title, meta, actions);
+  return card;
+}
+
+function errorCard(file, message) {
+  const card = document.createElement("article");
+  card.className = "card error";
+  const title = document.createElement("h3");
+  title.textContent = file.name;
+  const text = document.createElement("p");
+  text.textContent = message;
+  card.append(title, text);
+  return card;
+}
+
+runButton.addEventListener("click", async () => {
+  if (!files.length || runButton.dataset.busy === "1") return;
+  runButton.dataset.busy = "1";
+  runButton.disabled = true;
+  jobId = crypto.randomUUID();
+  results.hidden = false;
+  grid.innerHTML = "";
+  progress.hidden = false;
+
+  const preset = selectedPreset();
+  const batch = files.slice();
+  for (let index = 0; index < batch.length; index += 1) {
+    const file = batch[index];
+    progress.textContent = `Obrađujem ${index + 1} od ${batch.length}: ${file.name}. Jedna slika traje oko 20 sekundi.`;
+    const body = new FormData();
+    body.append("file", file);
+    body.append("job", jobId);
+    body.append("background", preset.width === 0 ? "transparent" : background);
+    body.append("width", String(preset.width));
+    body.append("height", String(preset.height));
+    body.append("padding", String(Number(paddingInput.value) / 100));
+    body.append("shadow", shadowInput.checked ? "1" : "0");
+    body.append("image_format", preset.format);
+    body.append("anchor", String(preset.anchor));
+    body.append("label", presetId);
+
+    try {
+      const response = await fetch("/api/process", { method: "POST", body });
+      if (!response.ok) {
+        let message = "Obrada nije uspela.";
+        try {
+          const payload = await response.json();
+          message = payload.detail || message;
+        } catch (_) {
+          /* keep default */
+        }
+        grid.append(errorCard(file, message));
+        continue;
+      }
+      const blob = await response.blob();
+      const filename = decodeURIComponent(response.headers.get("x-filename") || "slika.jpg");
+      const width = response.headers.get("x-width") || preset.width;
+      const height = response.headers.get("x-height") || preset.height;
+      const seconds = response.headers.get("x-seconds") || "";
+      grid.append(resultCard(file, blob, filename, width, height, seconds));
+    } catch (_) {
+      let alive = false;
+      try {
+        alive = (await fetch("/api/status")).ok;
+      } catch (_) {
+        alive = false;
+      }
+      grid.append(errorCard(
+        file,
+        alive
+          ? "Obrada je prekinuta. Sačekaj da se ova slika završi i pokušaj ponovo."
+          : "Program se ugasio. Dvoklikni pokreni.command i probaj opet.",
+      ));
+    }
+  }
+
+  progress.textContent = "Gotovo. Preuzmi pojedinačno ili sve odjednom.";
+  runButton.dataset.busy = "0";
+  updateSpec();
+  results.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+zipButton.addEventListener("click", async () => {
+  if (!jobId) return;
+  zipButton.disabled = true;
+  try {
+    const response = await fetch(`/api/jobs/${jobId}/zip`);
+    if (!response.ok) return;
+    saveBlob(await response.blob(), "pozadina.zip");
+  } finally {
+    zipButton.disabled = false;
+  }
+});
+
+async function pollStatus() {
+  try {
+    const response = await fetch("/api/status");
+    const payload = await response.json();
+    statusEl.textContent = payload.message;
+    statusEl.className = "status " + (payload.state === "ready" ? "ready" : payload.state === "error" ? "error" : "wait");
+    if (payload.state === "ready" || payload.state === "error") return;
+  } catch (_) {
+    statusEl.textContent = "Program nije pokrenut. Dvoklikni pokreni.command.";
+    statusEl.className = "status error";
+  }
+  setTimeout(pollStatus, 1500);
+}
+
+applyPreset("kp");
+pollStatus();
