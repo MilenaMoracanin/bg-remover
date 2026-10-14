@@ -29,8 +29,9 @@ MODEL_URL = (
 )
 MODEL_MD5 = "4fab47adc4ff364be1713e97b7e66334"
 MODEL_SIZE = 224_005_088
-MAX_SOURCE_SIDE = 3200
+MAX_SOURCE_SIDE = 8192
 INFER_SIZE = 1024
+JPEG_QUALITY = 100
 
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -75,7 +76,7 @@ class Engine:
         self.wait_until_ready()
         rgb = _prepare_rgb(image)
         mask = self._mask(rgb)
-        soft = mask.filter(ImageFilter.GaussianBlur(radius=0.7))
+        soft = mask.filter(ImageFilter.GaussianBlur(radius=0.4))
         rgba = rgb.convert("RGBA")
         rgba.putalpha(soft)
         return _decontaminate_white(rgba)
@@ -125,7 +126,7 @@ class Engine:
             flat.save(
                 buf,
                 format="JPEG",
-                quality=93,
+                quality=JPEG_QUALITY,
                 optimize=True,
                 progressive=True,
                 subsampling=0,
@@ -297,9 +298,12 @@ def _place_on_canvas(
 ) -> Image.Image:
     avail_w = max(1, int(width * (1 - 2 * padding)))
     avail_h = max(1, int(height * (1 - 2 * padding)))
-    scale = min(avail_w / subject.width, avail_h / subject.height)
-    size = (max(1, int(subject.width * scale)), max(1, int(subject.height * scale)))
-    fitted = subject.resize(size, Image.Resampling.LANCZOS)
+    scale = min(avail_w / subject.width, avail_h / subject.height, 1.0)
+    size = (max(1, int(round(subject.width * scale))), max(1, int(round(subject.height * scale))))
+    if size == subject.size:
+        fitted = subject
+    else:
+        fitted = subject.resize(size, Image.Resampling.LANCZOS)
 
     canvas = Image.new("RGBA", (width, height), color)
     x = (width - fitted.width) // 2
