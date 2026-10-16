@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import re
 import subprocess
@@ -418,117 +419,48 @@ return ""
 def _choose_folder_windows(title: str) -> str:
     script = r"""
 $ProgressPreference = 'SilentlyContinue'
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 Add-Type -AssemblyName System.Windows.Forms
-$source = @'
-using System;
-using System.Runtime.InteropServices;
-using System.Windows.Forms;
-
-public class ForegroundFolderDialog {
-    [StructLayout(LayoutKind.Sequential)]
-    struct RECT {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-    }
-
-    [DllImport("user32.dll")]
-    static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-
-    [DllImport("user32.dll")]
-    static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-
-    [DllImport("kernel32.dll")]
-    static extern uint GetCurrentThreadId();
-
-    [DllImport("kernel32.dll")]
-    static extern IntPtr GetConsoleWindow();
-
-    [DllImport("user32.dll")]
-    static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
-
-    [DllImport("user32.dll")]
-    static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    static extern bool BringWindowToTop(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-    public static string Pick(string title) {
-        IntPtr console = GetConsoleWindow();
-        if (console != IntPtr.Zero) ShowWindow(console, 0);
-
-        using (Form owner = new Form()) {
-            owner.TopMost = true;
-            owner.ShowInTaskbar = false;
-            owner.FormBorderStyle = FormBorderStyle.None;
-            owner.StartPosition = FormStartPosition.CenterScreen;
-            owner.Width = 1;
-            owner.Height = 1;
-            owner.Opacity = 0.01;
-
-            RECT rect;
-            IntPtr foreground = GetForegroundWindow();
-            if (foreground != IntPtr.Zero && GetWindowRect(foreground, out rect)) {
-                owner.StartPosition = FormStartPosition.Manual;
-                owner.Left = rect.Left + Math.Max(0, (rect.Right - rect.Left) / 2);
-                owner.Top = rect.Top + Math.Max(0, (rect.Bottom - rect.Top) / 2);
-            }
-
-            owner.Show();
-            owner.TopMost = true;
-            ForceForeground(owner.Handle);
-
-            using (FolderBrowserDialog dialog = new FolderBrowserDialog()) {
-                dialog.Description = title == null ? "" : title;
-                dialog.ShowNewFolderButton = true;
-                DialogResult result = dialog.ShowDialog(owner);
-                string selected = "";
-                if (result == DialogResult.OK && dialog.SelectedPath != null) {
-                    selected = dialog.SelectedPath;
-                }
-                owner.Close();
-                return selected;
-            }
-        }
-    }
-
-    static void ForceForeground(IntPtr hwnd) {
-        uint processId;
-        IntPtr foreground = GetForegroundWindow();
-        uint foregroundThread = GetWindowThreadProcessId(foreground, out processId);
-        uint currentThread = GetCurrentThreadId();
-        if (foregroundThread != 0 && foregroundThread != currentThread) {
-            AttachThreadInput(foregroundThread, currentThread, true);
-            BringWindowToTop(hwnd);
-            ShowWindow(hwnd, 5);
-            SetForegroundWindow(hwnd);
-            AttachThreadInput(foregroundThread, currentThread, false);
-        } else {
-            BringWindowToTop(hwnd);
-            SetForegroundWindow(hwnd);
-        }
-    }
+Add-Type -AssemblyName System.Drawing
+$screen = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position)
+$area = $screen.WorkingArea
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+$owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+$owner.Size = New-Object System.Drawing.Size(1, 1)
+$owner.Location = New-Object System.Drawing.Point(
+    [int]($area.X + ($area.Width / 2)),
+    [int]($area.Y + ($area.Height / 2))
+)
+$owner.Show()
+$owner.TopMost = $true
+$owner.Activate()
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$title = $env:POZADINA_FOLDER_TITLE
+if ([string]::IsNullOrWhiteSpace($title)) { $title = 'Izaberi folder' }
+$dialog.Description = $title
+$dialog.ShowNewFolderButton = $true
+$result = $dialog.ShowDialog($owner)
+$selected = ''
+if ($result -eq [System.Windows.Forms.DialogResult]::OK -and $dialog.SelectedPath) {
+    $selected = $dialog.SelectedPath
 }
-'@
-Add-Type -TypeDefinition $source -ReferencedAssemblies System.Windows.Forms
-$path = [ForegroundFolderDialog]::Pick($env:POZADINA_FOLDER_TITLE)
-if ($null -eq $path) { $path = '' }
-[Console]::Out.Write($path)
+$owner.Close()
+$owner.Dispose()
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[Console]::OutputEncoding = $utf8
+[Console]::Out.Write($selected)
 """
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    powershell = os.path.join(system_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    if not os.path.isfile(powershell):
+        powershell = "powershell"
     env = os.environ.copy()
     env["POZADINA_FOLDER_TITLE"] = title
     result = subprocess.run(
-        ["powershell", "-NoProfile", "-STA", "-Command", "-"],
-        input=script,
+        [powershell, "-NoProfile", "-STA", "-EncodedCommand", encoded],
         capture_output=True,
         text=True,
         encoding="utf-8",
