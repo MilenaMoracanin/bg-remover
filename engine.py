@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -39,6 +41,58 @@ STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 class EngineError(Exception):
     pass
+
+
+def _download_model(url: str, dest: Path, report) -> None:
+    """Download the model. On Windows, fall back to the system downloader."""
+    errors: list[str] = []
+    for attempt in range(1, 4):
+        try:
+            _download_with_python(url, dest, report)
+            return
+        except Exception as exc:
+            errors.append(str(exc))
+            dest.unlink(missing_ok=True)
+            time.sleep(attempt)
+    if sys.platform == "win32":
+        try:
+            _download_with_curl(url, dest)
+            return
+        except Exception as exc:
+            errors.append(str(exc))
+            dest.unlink(missing_ok=True)
+    detail = errors[-1] if errors else "nepoznata greška"
+    raise EngineError(detail)
+
+
+def _download_with_python(url: str, dest: Path, report) -> None:
+    request = urllib.request.Request(url, headers={"User-Agent": "Pozadina/1.0"})
+    with urllib.request.urlopen(request, timeout=120) as response:
+        total = int(response.headers.get("Content-Length") or 0)
+        downloaded = 0
+        with dest.open("wb") as handle:
+            while True:
+                chunk = response.read(256 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                downloaded += len(chunk)
+                report(downloaded, total)
+
+
+def _download_with_curl(url: str, dest: Path) -> None:
+    curl = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "curl.exe")
+    if not os.path.exists(curl):
+        curl = "curl.exe"
+    result = subprocess.run(
+        [curl, "-L", "--fail", "--retry", "3", "-o", str(dest), url],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "curl nije uspeo").strip()
+        raise EngineError(message)
 
 
 class Engine:
@@ -173,19 +227,24 @@ class Engine:
         self.progress = 0.0
         self.message = "Prvi put preuzimam model (oko 214 MB). Posle toga radi bez interneta."
         tmp = MODEL_PATH.with_suffix(".onnx.part")
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
 
-        def report(blocks: int, block_size: int, total: int) -> None:
+        def report(downloaded: int, total: int) -> None:
             if total > 0:
-                self.progress = min(blocks * block_size / total, 0.99)
+                self.progress = min(downloaded / total, 0.99)
                 percent = int(self.progress * 100)
                 self.message = f"Preuzimam model… {percent}%"
 
         try:
-            urllib.request.urlretrieve(MODEL_URL, tmp, reporthook=report)
-        except Exception:
-            if tmp.exists():
-                tmp.unlink()
-            raise EngineError("Preuzimanje modela nije uspelo. Proveri internet i pokušaj ponovo.")
+            _download_model(MODEL_URL, tmp, report)
+        except Exception as exc:
+            tmp.unlink(missing_ok=True)
+            print(f"Preuzimanje modela nije uspelo: {exc}", flush=True)
+            raise EngineError(
+                "Preuzimanje modela nije uspelo. Proveri internet i pokušaj ponovo. "
+                "Ako si na firmnoj mreži, probaj kućni internet."
+            ) from exc
 
         digest = hashlib.md5(tmp.read_bytes()).hexdigest()
         if digest != MODEL_MD5:
