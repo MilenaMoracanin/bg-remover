@@ -396,6 +396,7 @@ const folderErrors = document.querySelector("#folder-errors");
 let folderJobId = "";
 
 async function chooseFolder(kind, input) {
+  const previousPlaceholder = input.placeholder;
   input.placeholder = "Čekam izbor foldera…";
   try {
     const response = await fetch(`/api/pick-folder?kind=${kind}`, { method: "POST" });
@@ -403,6 +404,8 @@ async function chooseFolder(kind, input) {
     if (payload.path) input.value = payload.path;
   } catch (_) {
     folderProgress.textContent = "Izbor foldera nije uspeo. Nalepi putanju ručno.";
+  } finally {
+    input.placeholder = previousPlaceholder;
   }
 }
 

@@ -371,31 +371,181 @@ def _folder_error(exc: Exception) -> str:
 
 
 def _choose_folder(title: str) -> str:
+    """Show the folder dialog in front of a fullscreen browser window."""
     if sys.platform == "darwin":
-        result = subprocess.run(
-            ["osascript", "-e", f'POSIX path of (choose folder with prompt "{title}")'],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if result.returncode != 0:
-            return ""
-        return result.stdout.strip()
+        return _choose_folder_mac(title)
     if sys.platform == "win32":
-        script = (
-            "Add-Type -AssemblyName System.Windows.Forms; "
-            "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
-            f"$dialog.Description = '{title}'; "
-            "if ($dialog.ShowDialog() -eq 'OK') { $dialog.SelectedPath }"
-        )
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-STA", "-Command", script],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        return result.stdout.strip()
+        return _choose_folder_windows(title)
     return ""
+
+
+def _choose_folder_mac(title: str) -> str:
+    safe = title.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'''
+use framework "AppKit"
+use scripting additions
+set panel to current application's NSOpenPanel's openPanel()
+panel's setCanChooseFiles_(false)
+panel's setCanChooseDirectories_(true)
+panel's setAllowsMultipleSelection_(false)
+panel's setCanCreateDirectories_(true)
+panel's setTitle_("{safe}")
+panel's setMessage_("{safe}")
+panel's setPrompt_("Izaberi")
+panel's setLevel_(101)
+panel's setCollectionBehavior_(258)
+current application's NSApplication's sharedApplication()'s setActivationPolicy_(0)
+current application's NSApplication's sharedApplication()'s activateIgnoringOtherApps_(true)
+set response to panel's runModal()
+if (response as integer) is 1 then
+    set folderURL to panel's |URL|()
+    if folderURL is missing value then return ""
+    return (folderURL's |path|() as text)
+end if
+return ""
+'''
+    result = subprocess.run(
+        ["osascript"],
+        input=script,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        if detail:
+            _log(f"Izbor foldera nije uspeo: {detail}")
+        return ""
+    return result.stdout.strip()
+
+
+def _choose_folder_windows(title: str) -> str:
+    script = r"""
+$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+Add-Type -AssemblyName System.Windows.Forms
+$source = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+public class ForegroundFolderDialog {
+    [StructLayout(LayoutKind.Sequential)]
+    struct RECT {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("kernel32.dll")]
+    static extern uint GetCurrentThreadId();
+
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetConsoleWindow();
+
+    [DllImport("user32.dll")]
+    static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+
+    [DllImport("user32.dll")]
+    static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    public static string Pick(string title) {
+        IntPtr console = GetConsoleWindow();
+        if (console != IntPtr.Zero) ShowWindow(console, 0);
+
+        using (Form owner = new Form()) {
+            owner.TopMost = true;
+            owner.ShowInTaskbar = false;
+            owner.FormBorderStyle = FormBorderStyle.None;
+            owner.StartPosition = FormStartPosition.CenterScreen;
+            owner.Width = 1;
+            owner.Height = 1;
+            owner.Opacity = 0.01;
+
+            RECT rect;
+            IntPtr foreground = GetForegroundWindow();
+            if (foreground != IntPtr.Zero && GetWindowRect(foreground, out rect)) {
+                owner.StartPosition = FormStartPosition.Manual;
+                owner.Left = rect.Left + Math.Max(0, (rect.Right - rect.Left) / 2);
+                owner.Top = rect.Top + Math.Max(0, (rect.Bottom - rect.Top) / 2);
+            }
+
+            owner.Show();
+            owner.TopMost = true;
+            ForceForeground(owner.Handle);
+
+            using (FolderBrowserDialog dialog = new FolderBrowserDialog()) {
+                dialog.Description = title == null ? "" : title;
+                dialog.ShowNewFolderButton = true;
+                DialogResult result = dialog.ShowDialog(owner);
+                string selected = "";
+                if (result == DialogResult.OK && dialog.SelectedPath != null) {
+                    selected = dialog.SelectedPath;
+                }
+                owner.Close();
+                return selected;
+            }
+        }
+    }
+
+    static void ForceForeground(IntPtr hwnd) {
+        uint processId;
+        IntPtr foreground = GetForegroundWindow();
+        uint foregroundThread = GetWindowThreadProcessId(foreground, out processId);
+        uint currentThread = GetCurrentThreadId();
+        if (foregroundThread != 0 && foregroundThread != currentThread) {
+            AttachThreadInput(foregroundThread, currentThread, true);
+            BringWindowToTop(hwnd);
+            ShowWindow(hwnd, 5);
+            SetForegroundWindow(hwnd);
+            AttachThreadInput(foregroundThread, currentThread, false);
+        } else {
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
+    }
+}
+'@
+Add-Type -TypeDefinition $source -ReferencedAssemblies System.Windows.Forms
+$path = [ForegroundFolderDialog]::Pick($env:POZADINA_FOLDER_TITLE)
+if ($null -eq $path) { $path = '' }
+[Console]::Out.Write($path)
+"""
+    env = os.environ.copy()
+    env["POZADINA_FOLDER_TITLE"] = title
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-STA", "-Command", "-"],
+        input=script,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        if detail:
+            _log(f"Izbor foldera nije uspeo: {detail}")
+        return ""
+    return result.stdout.replace("\ufeff", "").strip()
 
 
 def _log(message: str) -> None:
