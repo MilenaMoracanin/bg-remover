@@ -5,7 +5,6 @@ const PRESETS = {
     background: "#ffffff",
     width: 1200,
     height: 1200,
-    padding: 9,
     shadow: true,
     format: "jpeg",
     anchor: 0.5,
@@ -17,7 +16,6 @@ const PRESETS = {
     background: "#f3f1ec",
     width: 1080,
     height: 1350,
-    padding: 11,
     shadow: true,
     format: "jpeg",
     anchor: 0.48,
@@ -29,7 +27,6 @@ const PRESETS = {
     background: "#ffffff",
     width: 1080,
     height: 1080,
-    padding: 10,
     shadow: true,
     format: "jpeg",
     anchor: 0.5,
@@ -41,7 +38,6 @@ const PRESETS = {
     background: "#f6f4ef",
     width: 1080,
     height: 1920,
-    padding: 14,
     shadow: true,
     format: "jpeg",
     anchor: 0.36,
@@ -53,7 +49,6 @@ const PRESETS = {
     background: "transparent",
     width: 0,
     height: 0,
-    padding: 4,
     shadow: false,
     format: "png",
     anchor: 0.5,
@@ -75,8 +70,6 @@ const presets = document.querySelector("#presets");
 const swatches = document.querySelector("#swatches");
 const colorInput = document.querySelector("#color");
 const colorField = document.querySelector("#color-field");
-const paddingInput = document.querySelector("#padding");
-const paddingValue = document.querySelector("#padding-value");
 const shadowInput = document.querySelector("#shadow");
 const spec = document.querySelector("#spec");
 const runButton = document.querySelector("#run");
@@ -133,7 +126,6 @@ function applyPreset(id) {
   presetId = id;
   const preset = PRESETS[id];
   background = preset.background;
-  paddingInput.value = String(preset.padding);
   shadowInput.checked = preset.shadow;
   if (preset.background !== "transparent") colorInput.value = preset.background;
   renderPresets();
@@ -144,7 +136,6 @@ function applyPreset(id) {
 function updateSpec() {
   const preset = selectedPreset();
   const transparent = preset.format === "png" && preset.width === 0;
-  paddingValue.textContent = `${paddingInput.value}%`;
   colorField.disabled = transparent;
   shadowInput.disabled = transparent;
   if (transparent) {
@@ -211,7 +202,6 @@ fileInput.addEventListener("change", () => {
   fileInput.value = "";
 });
 
-paddingInput.addEventListener("input", updateSpec);
 shadowInput.addEventListener("change", updateSpec);
 colorInput.addEventListener("input", () => {
   background = colorInput.value.toLowerCase();
@@ -312,7 +302,6 @@ runButton.addEventListener("click", async () => {
     body.append("background", preset.width === 0 ? "transparent" : background);
     body.append("width", String(preset.width));
     body.append("height", String(preset.height));
-    body.append("padding", String(Number(paddingInput.value) / 100));
     body.append("shadow", shadowInput.checked ? "1" : "0");
     body.append("image_format", preset.format);
     body.append("anchor", String(preset.anchor));
@@ -475,7 +464,6 @@ runFolder.addEventListener("click", async () => {
         background: preset.width === 0 ? "transparent" : background,
         width: preset.width,
         height: preset.height,
-        padding: Number(paddingInput.value) / 100,
         shadow: shadowInput.checked,
         image_format: preset.format,
         anchor: preset.anchor,

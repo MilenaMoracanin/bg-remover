@@ -72,7 +72,6 @@ async def process(
     background: str = Form("#ffffff"),
     width: int = Form(1200),
     height: int = Form(1200),
-    padding: float = Form(0.09),
     shadow: str = Form("1"),
     image_format: str = Form("jpeg"),
     anchor: float = Form(0.5),
@@ -113,7 +112,6 @@ async def process(
             background=background,
             width=width,
             height=height,
-            padding=padding,
             shadow=shadow == "1" and background != "transparent",
             image_format=image_format,
             anchor=anchor,
@@ -171,7 +169,6 @@ class FolderRequest(BaseModel):
     background: str = "#ffffff"
     width: int = 1200
     height: int = 1200
-    padding: float = 0.09
     shadow: bool = True
     image_format: str = "jpeg"
     anchor: float = 0.5
@@ -271,7 +268,6 @@ def _folder_options(body: FolderRequest) -> dict:
         "background": "transparent" if body.width == 0 or body.height == 0 else background,
         "width": body.width,
         "height": body.height,
-        "padding": min(max(body.padding, 0.0), 0.28),
         "shadow": body.shadow and background != "transparent" and body.width != 0,
         "image_format": "png" if body.width == 0 or body.height == 0 else body.image_format,
         "anchor": min(max(body.anchor, 0.0), 1.0),

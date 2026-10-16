@@ -51,7 +51,7 @@ Prvi put treba internet, osim ako je folder `models` već prenet sa drugog raču
    - **Instagram objava** — 1080×1350, svetla studio pozadina
    - **Instagram kvadrat** i **priča**
    - **Providna PNG** — bez pozadine, za Canva
-3. Podesi razmak, boju i meku senku.
+3. Podesi boju i meku senku.
 4. Klikni **Ukloni pozadinu**.
 5. Uporedi pre i posle, pa preuzmi jednu sliku ili sve odjednom.
 
