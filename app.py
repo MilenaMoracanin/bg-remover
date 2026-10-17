@@ -368,7 +368,7 @@ def _folder_error(exc: Exception) -> str:
 
 
 def _choose_folder(title: str) -> str:
-    """Show the folder dialog in front of a fullscreen browser window."""
+    """Show the folder dialog over the open browser page."""
     if sys.platform == "darwin":
         return _choose_folder_mac(title)
     if sys.platform == "win32":
@@ -381,6 +381,27 @@ def _choose_folder_mac(title: str) -> str:
     script = f'''
 use framework "AppKit"
 use scripting additions
+set picked to ""
+set frontName to ""
+try
+    tell application "System Events"
+        set frontName to name of first application process whose frontmost is true
+    end tell
+end try
+if frontName is in {{"osascript", "Python", "python3", "bash", "zsh"}} then
+    set frontName to ""
+end if
+if frontName is not "" then
+    try
+        tell application frontName
+            activate
+            set picked to POSIX path of (choose folder with prompt "{safe}")
+        end tell
+        return picked
+    on error errText number errNum
+        if errNum is -128 then return ""
+    end try
+end if
 set panel to current application's NSOpenPanel's openPanel()
 panel's setCanChooseFiles_(false)
 panel's setCanChooseDirectories_(true)
@@ -390,9 +411,6 @@ panel's setTitle_("{safe}")
 panel's setMessage_("{safe}")
 panel's setPrompt_("Izaberi")
 panel's setLevel_(101)
-panel's setCollectionBehavior_(258)
-current application's NSApplication's sharedApplication()'s setActivationPolicy_(0)
-current application's NSApplication's sharedApplication()'s activateIgnoringOtherApps_(true)
 set response to panel's runModal()
 if (response as integer) is 1 then
     set folderURL to panel's |URL|()
@@ -419,38 +437,59 @@ return ""
 def _choose_folder_windows(title: str) -> str:
     script = r"""
 $ProgressPreference = 'SilentlyContinue'
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$screen = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position)
-$area = $screen.WorkingArea
-$owner = New-Object System.Windows.Forms.Form
-$owner.TopMost = $true
-$owner.ShowInTaskbar = $false
-$owner.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
-$owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-$owner.Size = New-Object System.Drawing.Size(1, 1)
-$owner.Location = New-Object System.Drawing.Point(
-    [int]($area.X + ($area.Width / 2)),
-    [int]($area.Y + ($area.Height / 2))
-)
-$owner.Show()
-$owner.TopMost = $true
-$owner.Activate()
-$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$title = $env:POZADINA_FOLDER_TITLE
-if ([string]::IsNullOrWhiteSpace($title)) { $title = 'Izaberi folder' }
-$dialog.Description = $title
-$dialog.ShowNewFolderButton = $true
-$result = $dialog.ShowDialog($owner)
-$selected = ''
-if ($result -eq [System.Windows.Forms.DialogResult]::OK -and $dialog.SelectedPath) {
-    $selected = $dialog.SelectedPath
-}
-$owner.Close()
-$owner.Dispose()
 $utf8 = New-Object System.Text.UTF8Encoding $false
 [Console]::OutputEncoding = $utf8
-[Console]::Out.Write($selected)
+function Write-Path([string]$value) {
+    if ($null -eq $value) { $value = '' }
+    [Console]::Out.Write($value)
+}
+function Show-SimpleDialog {
+    Add-Type -AssemblyName System.Windows.Forms
+    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+    $title = $env:POZADINA_FOLDER_TITLE
+    if ([string]::IsNullOrWhiteSpace($title)) { $title = 'Izaberi folder' }
+    $dialog.Description = $title
+    $dialog.ShowNewFolderButton = $true
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        Write-Path $dialog.SelectedPath
+    }
+}
+try {
+    Add-Type -AssemblyName System.Windows.Forms
+    $forms = [System.Windows.Forms.Form].Assembly.Location
+    $source = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+public class HwndOwner : IWin32Window {
+    IntPtr handle;
+    public HwndOwner(IntPtr handle) { this.handle = handle; }
+    public IntPtr Handle { get { return handle; } }
+}
+public class BrowserFolderDialog {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+    public static string Pick(string title) {
+        using (FolderBrowserDialog dialog = new FolderBrowserDialog()) {
+            dialog.Description = title == null ? "" : title;
+            dialog.ShowNewFolderButton = true;
+            IntPtr hwnd = GetForegroundWindow();
+            DialogResult result = hwnd == IntPtr.Zero
+                ? dialog.ShowDialog()
+                : dialog.ShowDialog(new HwndOwner(hwnd));
+            if (result == DialogResult.OK && dialog.SelectedPath != null) return dialog.SelectedPath;
+            return "";
+        }
+    }
+}
+'@
+    Add-Type -TypeDefinition $source -ReferencedAssemblies $forms
+    $title = $env:POZADINA_FOLDER_TITLE
+    if ([string]::IsNullOrWhiteSpace($title)) { $title = 'Izaberi folder' }
+    Write-Path ([BrowserFolderDialog]::Pick($title))
+} catch {
+    Show-SimpleDialog
+}
 """
     encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     system_root = os.environ.get("SystemRoot", r"C:\Windows")
@@ -467,6 +506,7 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
         errors="replace",
         env=env,
         timeout=300,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()

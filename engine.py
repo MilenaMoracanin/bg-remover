@@ -33,6 +33,7 @@ MODEL_MD5 = "4fab47adc4ff364be1713e97b7e66334"
 MODEL_SIZE = 224_005_088
 MAX_SOURCE_SIDE = 8192
 INFER_SIZE = 1024
+INFER_PAD = 0.12
 JPEG_QUALITY = 100
 
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -261,7 +262,14 @@ class Engine:
 
     def _infer_probability(self, rgb: Image.Image) -> np.ndarray:
         assert self._session is not None
-        resized = rgb.resize((INFER_SIZE, INFER_SIZE), Image.Resampling.LANCZOS)
+        # A plain border keeps a product that touches the photo edge from
+        # being read as the backdrop.
+        pad_x = max(1, int(round(rgb.width * INFER_PAD)))
+        pad_y = max(1, int(round(rgb.height * INFER_PAD)))
+        framed = Image.new("RGB", (rgb.width + 2 * pad_x, rgb.height + 2 * pad_y), (255, 255, 255))
+        framed.paste(rgb, (pad_x, pad_y))
+
+        resized = framed.resize((INFER_SIZE, INFER_SIZE), Image.Resampling.LANCZOS)
         array = np.asarray(resized).astype(np.float32)
         array = array / max(float(array.max()), 1e-6)
         array = (array - MEAN) / STD
@@ -274,7 +282,15 @@ class Engine:
         pred = 1.0 / (1.0 + np.exp(-pred))
         pred = np.clip(pred, 0.0, 1.0)
         mask = Image.fromarray((pred * 255).astype(np.uint8), mode="L")
-        mask = mask.resize(rgb.size, Image.Resampling.LANCZOS)
+        fx = pad_x / framed.width
+        fy = pad_y / framed.height
+        box = (
+            int(round(INFER_SIZE * fx)),
+            int(round(INFER_SIZE * fy)),
+            int(round(INFER_SIZE * (1 - fx))),
+            int(round(INFER_SIZE * (1 - fy))),
+        )
+        mask = mask.crop(box).resize(rgb.size, Image.Resampling.LANCZOS)
         return np.asarray(mask).astype(np.float32) / 255.0
 
     def _refine_subject(self, rgb: Image.Image, prob: np.ndarray) -> np.ndarray:
