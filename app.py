@@ -246,22 +246,37 @@ def start_folder(body: FolderRequest) -> dict:
     return {"id": job_id, "total": len(images)}
 
 
+@app.get("/api/folder/active")
+def active_folder() -> dict:
+    with _folder_lock:
+        for job_id, job in _folder_jobs.items():
+            if job["state"] == "running":
+                return _folder_view(job_id, job)
+    return {"id": None}
+
+
 @app.get("/api/folder/{job_id}")
 def folder_status(job_id: str) -> dict:
     with _folder_lock:
         job = _folder_jobs.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Nema ove obrade.")
-        return {
-            "state": job["state"],
-            "total": job["total"],
-            "done": job["done"],
-            "saved": job["saved"],
-            "current": job["current"],
-            "errors": list(job["errors"][-30:]),
-            "elapsed": round(time.time() - job["started"], 1),
-            "destination": str(job["destination"]),
-        }
+        return _folder_view(job_id, job)
+
+
+def _folder_view(job_id: str, job: dict) -> dict:
+    return {
+        "id": job_id,
+        "state": job["state"],
+        "total": job["total"],
+        "done": job["done"],
+        "saved": job["saved"],
+        "current": job["current"],
+        "errors": list(job["errors"][-30:]),
+        "elapsed": round(time.time() - job["started"], 1),
+        "source": str(job["source"]),
+        "destination": str(job["destination"]),
+    }
 
 
 @app.post("/api/folder/{job_id}/stop")

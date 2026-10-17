@@ -383,6 +383,7 @@ const stopFolder = document.querySelector("#stop-folder");
 const folderProgress = document.querySelector("#folder-progress");
 const folderErrors = document.querySelector("#folder-errors");
 let folderJobId = "";
+let folderWatchGen = 0;
 
 async function chooseFolder(kind, input) {
   const previousPlaceholder = input.placeholder;
@@ -427,21 +428,54 @@ function folderMessage(payload) {
   return `Gotovo. Sačuvano ${payload.saved} slika u folderima instagram i kupujemprodajem, u ${payload.destination}.`;
 }
 
-async function watchFolder() {
-  if (!folderJobId) return;
+function showRunningFolder(payload) {
+  folderJobId = payload.id;
+  if (payload.source) sourceDir.value = payload.source;
+  if (payload.destination) destDir.value = payload.destination;
+  runFolder.disabled = true;
+  stopFolder.hidden = false;
+  folderProgress.textContent = folderMessage(payload);
+  renderFolderErrors(payload.errors || []);
+}
+
+async function resumeFolder() {
   try {
-    const response = await fetch(`/api/folder/${folderJobId}`);
+    const response = await fetch("/api/folder/active");
+    if (!response.ok) return false;
+    const payload = await response.json();
+    if (!payload.id || payload.state !== "running") return false;
+    showRunningFolder(payload);
+    watchFolder();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function watchFolder() {
+  const gen = ++folderWatchGen;
+  if (!folderJobId) return;
+  const jobId = folderJobId;
+  try {
+    const response = await fetch(`/api/folder/${jobId}`);
+    if (gen !== folderWatchGen) return;
     if (!response.ok) return;
     const payload = await response.json();
     folderProgress.textContent = folderMessage(payload);
     renderFolderErrors(payload.errors || []);
     if (payload.state === "running") {
-      setTimeout(watchFolder, 1000);
+      runFolder.disabled = true;
+      stopFolder.hidden = false;
+      setTimeout(() => {
+        if (gen === folderWatchGen) watchFolder();
+      }, 1000);
       return;
     }
   } catch (_) {
+    if (gen !== folderWatchGen) return;
     folderProgress.textContent = "Veza sa programom je prekinuta.";
   }
+  if (gen !== folderWatchGen) return;
   runFolder.disabled = false;
   stopFolder.hidden = true;
   folderJobId = "";
@@ -463,6 +497,15 @@ runFolder.addEventListener("click", async () => {
       }),
     });
     const payload = await response.json();
+    if (response.status === 409) {
+      const attached = await resumeFolder();
+      if (!attached) {
+        folderProgress.textContent = payload.detail || "Obrada foldera je već u toku.";
+        runFolder.disabled = false;
+        stopFolder.hidden = true;
+      }
+      return;
+    }
     if (!response.ok) {
       folderProgress.textContent = payload.detail || "Obrada foldera nije počela.";
       runFolder.disabled = false;
@@ -488,3 +531,4 @@ stopFolder.addEventListener("click", async () => {
 
 applyPreset("kp");
 pollStatus();
+resumeFolder();
