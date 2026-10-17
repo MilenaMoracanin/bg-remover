@@ -147,7 +147,27 @@ class Engine:
         image_format: str,
         anchor: float,
     ) -> tuple[bytes, str, int, int]:
-        cut = self.cutout(image)
+        return self.compose(
+            self.cutout(image),
+            background=background,
+            width=width,
+            height=height,
+            shadow=shadow,
+            image_format=image_format,
+            anchor=anchor,
+        )
+
+    def compose(
+        self,
+        cut: Image.Image,
+        *,
+        background: str,
+        width: int,
+        height: int,
+        shadow: bool,
+        image_format: str,
+        anchor: float,
+    ) -> tuple[bytes, str, int, int]:
         box = cut.getbbox()
         if box is None:
             raise EngineError("Na slici nije pronađen proizvod.")

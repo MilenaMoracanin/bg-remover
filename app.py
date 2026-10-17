@@ -167,12 +167,32 @@ def download_zip(job_id: str) -> Response:
 class FolderRequest(BaseModel):
     source: str
     destination: str
-    background: str = "#ffffff"
-    width: int = 1200
-    height: int = 1200
-    shadow: bool = True
-    image_format: str = "jpeg"
-    anchor: float = 0.5
+
+
+_FOLDER_FORMATS = (
+    (
+        "instagram",
+        {
+            "background": "#ffffff",
+            "width": 1080,
+            "height": 1080,
+            "shadow": True,
+            "image_format": "jpeg",
+            "anchor": 0.5,
+        },
+    ),
+    (
+        "kupujemprodajem",
+        {
+            "background": "#ffffff",
+            "width": 1200,
+            "height": 1200,
+            "shadow": True,
+            "image_format": "jpeg",
+            "anchor": 0.5,
+        },
+    ),
+)
 
 
 @app.post("/api/pick-folder")
@@ -184,7 +204,6 @@ async def pick_folder(kind: str = "source") -> dict:
 
 @app.post("/api/folder")
 def start_folder(body: FolderRequest) -> dict:
-    options = _folder_options(body)
     source = Path(body.source).expanduser()
     destination = Path(body.destination).expanduser()
     if not body.source.strip():
@@ -220,7 +239,6 @@ def start_folder(body: FolderRequest) -> dict:
         "errors": [],
         "cancel": False,
         "started": time.time(),
-        "options": options,
     }
     with _folder_lock:
         _folder_jobs[job_id] = job
@@ -256,54 +274,61 @@ def stop_folder(job_id: str) -> dict:
     return {"ok": True}
 
 
-def _folder_options(body: FolderRequest) -> dict:
-    if body.image_format not in {"jpeg", "png"}:
-        raise HTTPException(status_code=400, detail="Format mora biti JPEG ili PNG.")
-    if body.width != 0 or body.height != 0:
-        if not (256 <= body.width <= 4096 and 256 <= body.height <= 4096):
-            raise HTTPException(status_code=400, detail="Dimenzije moraju biti između 256 i 4096.")
-    background = body.background.strip().lower()
-    if background != "transparent" and not re.fullmatch(r"#[0-9a-f]{6}", background):
-        raise HTTPException(status_code=400, detail="Boja pozadine nije ispravna.")
-    return {
-        "background": "transparent" if body.width == 0 or body.height == 0 else background,
-        "width": body.width,
-        "height": body.height,
-        "shadow": body.shadow and background != "transparent" and body.width != 0,
-        "image_format": "png" if body.width == 0 or body.height == 0 else body.image_format,
-        "anchor": min(max(body.anchor, 0.0), 1.0),
-    }
-
-
 def _run_folder(job_id: str) -> None:
     with _folder_lock:
         job = _folder_jobs[job_id]
         files = list(job["files"])
         source = job["source"]
         destination = job["destination"]
-        options = dict(job["options"])
-    used: set[str] = set()
+    used = {name: set() for name, _options in _FOLDER_FORMATS}
     for index, path in enumerate(files, start=1):
         with _folder_lock:
             if job["cancel"]:
                 job["state"] = "stopped"
                 job["current"] = ""
                 return
-            relative = path.relative_to(source).as_posix()
-            job["current"] = relative
+            relative = path.relative_to(source)
+            job["current"] = relative.as_posix()
         try:
-            target = _target_path(destination, path.relative_to(source), options["image_format"], used)
-            _write_processed(path, target, options)
-            with _folder_lock:
-                job["saved"] += 1
+            frame = _load_frame(path)
         except (EngineError, UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-            _log(f"folder {relative}: {exc}")
+            _remember_folder_error(job, relative.as_posix(), exc)
             with _folder_lock:
-                job["errors"].append({"file": relative, "message": _folder_error(exc)})
+                job["done"] = index
+            continue
+        try:
+            cut = engine.cutout(frame)
+        except EngineError as exc:
+            _remember_folder_error(job, relative.as_posix(), exc)
+            frame.close()
+            with _folder_lock:
+                job["done"] = index
+            continue
         except Exception as exc:
-            _log(f"folder {relative}:\n{traceback.format_exc()}")
+            _log(f"folder {relative.as_posix()}:\n{traceback.format_exc()}")
+            _remember_folder_error(job, relative.as_posix(), exc)
+            frame.close()
             with _folder_lock:
-                job["errors"].append({"file": relative, "message": "Obrada ove slike nije uspela."})
+                job["done"] = index
+            continue
+        try:
+            for name, options in _FOLDER_FORMATS:
+                label = "Instagram" if name == "instagram" else "KupujemProdajem"
+                try:
+                    data, _media, _width, _height = engine.compose(cut, **options)
+                    target = _target_path(destination / name, relative, options["image_format"], used[name])
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+                    with _folder_lock:
+                        job["saved"] += 1
+                except EngineError as exc:
+                    _remember_folder_error(job, f"{relative.as_posix()} ({label})", exc)
+                except Exception as exc:
+                    _log(f"folder {relative.as_posix()} {label}:\n{traceback.format_exc()}")
+                    _remember_folder_error(job, f"{relative.as_posix()} ({label})", exc)
+        finally:
+            frame.close()
+            cut.close()
         with _folder_lock:
             job["done"] = index
     with _folder_lock:
@@ -312,18 +337,18 @@ def _run_folder(job_id: str) -> None:
     _log(f"folder gotov {job['saved']}/{job['total']} u {destination}")
 
 
-def _write_processed(source: Path, target: Path, options: dict) -> None:
+def _load_frame(source: Path) -> Image.Image:
     if source.stat().st_size > _MAX_BYTES:
         raise EngineError("Slika je veća od 40 MB.")
     with Image.open(source) as incoming:
         incoming.seek(0)
-        frame = incoming.copy()
-    try:
-        data, _media, _width, _height = engine.render(frame, **options)
-    finally:
-        frame.close()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
+        return incoming.copy()
+
+
+def _remember_folder_error(job: dict, label: str, exc: Exception) -> None:
+    _log(f"folder {label}: {exc}")
+    with _folder_lock:
+        job["errors"].append({"file": label, "message": _folder_error(exc)})
 
 
 def _target_path(destination: Path, relative: Path, image_format: str, used: set[str]) -> Path:

@@ -422,9 +422,9 @@ function folderMessage(payload) {
     return `Obrađujem ${Math.min(payload.done + 1, payload.total)} od ${payload.total}: ${name}.${estimate}`;
   }
   if (payload.state === "stopped") {
-    return `Zaustavljeno. Sačuvano ${payload.saved} od ${payload.total}.`;
+    return `Zaustavljeno posle ${payload.done} od ${payload.total}. Sačuvano ${payload.saved} gotovih slika.`;
   }
-  return `Gotovo. Sačuvano ${payload.saved} od ${payload.total} u ${payload.destination}.`;
+  return `Gotovo. Sačuvano ${payload.saved} slika u folderima instagram i kupujemprodajem, u ${payload.destination}.`;
 }
 
 async function watchFolder() {
@@ -449,7 +449,6 @@ async function watchFolder() {
 
 runFolder.addEventListener("click", async () => {
   if (folderJobId) return;
-  const preset = selectedPreset();
   runFolder.disabled = true;
   stopFolder.hidden = false;
   folderProgress.textContent = "Tražim slike u folderu…";
@@ -461,12 +460,6 @@ runFolder.addEventListener("click", async () => {
       body: JSON.stringify({
         source: sourceDir.value.trim(),
         destination: destDir.value.trim(),
-        background: preset.width === 0 ? "transparent" : background,
-        width: preset.width,
-        height: preset.height,
-        shadow: shadowInput.checked,
-        image_format: preset.format,
-        anchor: preset.anchor,
       }),
     });
     const payload = await response.json();
@@ -477,7 +470,7 @@ runFolder.addEventListener("click", async () => {
       return;
     }
     folderJobId = payload.id;
-    folderProgress.textContent = `Nađeno ${payload.total} slika. Prva traje oko 20 sekundi.`;
+    folderProgress.textContent = `Nađeno ${payload.total} slika. Svaka ide u Instagram kvadrat i u KupujemProdajem. Prva traje oko 20 sekundi.`;
     watchFolder();
   } catch (_) {
     folderProgress.textContent = "Program nije pokrenut. Dvoklikni pokreni.command.";
