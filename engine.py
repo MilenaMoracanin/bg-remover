@@ -35,6 +35,8 @@ MAX_SOURCE_SIDE = 8192
 INFER_SIZE = 1024
 INFER_PAD = 0.12
 JPEG_QUALITY = 100
+# Isti beli razmak sa sve četiri strane, kao udeo kraće ivice kadra.
+EDGE = 0.10
 
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -174,6 +176,7 @@ class Engine:
 
         subject = cut.crop(box)
         anchor = min(max(anchor, 0.0), 1.0)
+        edges = _frame_edges(cut, box)
         transparent = background == "transparent" or width == 0 or height == 0
 
         if transparent:
@@ -187,6 +190,7 @@ class Engine:
                 color=color,
                 shadow=shadow,
                 anchor=anchor,
+                edges=edges,
             )
 
         buf = BytesIO()
@@ -464,6 +468,36 @@ def _parse_hex(value: str) -> tuple[int, int, int, int]:
     return red, green, blue, 255
 
 
+def _frame_edges(
+    image: Image.Image, box: tuple[int, int, int, int]
+) -> tuple[bool, bool, bool, bool]:
+    """Sides where the product already meets the original photo edge."""
+    left, top, right, bottom = box
+    width, height = image.size
+    tol_x = 2
+    tol_y = 2
+    return (
+        left <= tol_x,
+        top <= tol_y,
+        right >= width - tol_x,
+        bottom >= height - tol_y,
+    )
+
+
+def _axis_origin(
+    canvas_size: int,
+    fitted: int,
+    *,
+    pin_start: bool,
+    pin_end: bool,
+) -> int:
+    if pin_start and not pin_end:
+        return 0
+    if pin_end and not pin_start:
+        return max(0, canvas_size - fitted)
+    return max(0, (canvas_size - fitted) // 2)
+
+
 def _place_on_canvas(
     subject: Image.Image,
     *,
@@ -472,8 +506,26 @@ def _place_on_canvas(
     color: tuple[int, int, int, int],
     shadow: bool,
     anchor: float,
+    edges: tuple[bool, bool, bool, bool] = (False, False, False, False),
 ) -> Image.Image:
-    scale = min(width / subject.width, height / subject.height, 1.0)
+    del anchor
+    touch_l, touch_t, touch_r, touch_b = edges
+    margin = int(round(min(width, height) * EDGE))
+    margin = max(0, min(margin, (min(width, height) - 1) // 2))
+    pad_l = 0 if touch_l else margin
+    pad_r = 0 if touch_r else margin
+    pad_t = 0 if touch_t else margin
+    pad_b = 0 if touch_b else margin
+    inner_w = max(1, width - pad_l - pad_r)
+    inner_h = max(1, height - pad_t - pad_b)
+    # Slobodne strane drže razmak. Predmet se ne uvećava i ne seče.
+    scale = min(inner_w / subject.width, inner_h / subject.height, 1.0)
+    # Ako original već seče obe suprotne strane, ta osa ide od ivice do ivice.
+    if touch_l and touch_r:
+        scale = max(scale, min(width / subject.width, height / subject.height))
+    if touch_t and touch_b:
+        scale = max(scale, min(height / subject.height, width / subject.width))
+    scale = min(scale, width / subject.width, height / subject.height)
     size = (
         min(width, max(1, int(round(subject.width * scale)))),
         min(height, max(1, int(round(subject.height * scale)))),
@@ -484,9 +536,8 @@ def _place_on_canvas(
         fitted = subject.resize(size, Image.Resampling.LANCZOS)
 
     canvas = Image.new("RGBA", (width, height), color)
-    x = (width - fitted.width) // 2
-    y = int((height - fitted.height) * anchor)
-    y = min(max(y, 0), max(0, height - fitted.height))
+    x = _axis_origin(width, fitted.width, pin_start=touch_l, pin_end=touch_r)
+    y = _axis_origin(height, fitted.height, pin_start=touch_t, pin_end=touch_b)
 
     if shadow:
         canvas = _paint_shadow(canvas, fitted, x, y)

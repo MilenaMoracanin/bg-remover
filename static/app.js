@@ -142,7 +142,7 @@ function updateSpec() {
     spec.textContent = "PNG bez pozadine, u veličini proizvoda. Pogodno za Canva.";
   } else {
     const shadow = shadowInput.checked ? "sa senkom" : "bez senke";
-    spec.textContent = `JPEG najvišeg kvaliteta · ${preset.width}×${preset.height} · ${shadow}`;
+    spec.textContent = `JPEG najvišeg kvaliteta · ${preset.width}×${preset.height} · ${shadow} · beli razmak, ivica ostaje ako je već u kadru`;
   }
   runButton.disabled = files.length === 0 || runButton.dataset.busy === "1";
 }
