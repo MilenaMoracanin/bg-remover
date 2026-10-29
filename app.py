@@ -47,6 +47,7 @@ _JOB_ID = re.compile(r"^[0-9a-fA-F-]{36}$")
 _LABEL = re.compile(r"^[a-z0-9_]{1,24}$")
 _MAX_BYTES = 40 * 1024 * 1024
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".tif", ".tiff", ".bmp"}
+_NUMBERED_FILE = re.compile(r"^(\d+)\.(?:jpg|jpeg|png)$", re.IGNORECASE)
 _folder_jobs: dict[str, dict] = {}
 _folder_lock = threading.Lock()
 
@@ -295,7 +296,7 @@ def _run_folder(job_id: str) -> None:
         files = list(job["files"])
         source = job["source"]
         destination = job["destination"]
-    used = {name: set() for name, _options in _FOLDER_FORMATS}
+    sequences: dict[tuple[str, str], int] = {}
     for index, path in enumerate(files, start=1):
         with _folder_lock:
             if job["cancel"]:
@@ -331,7 +332,13 @@ def _run_folder(job_id: str) -> None:
                 label = "Instagram" if name == "instagram" else "KupujemProdajem"
                 try:
                     data, _media, _width, _height = engine.compose(cut, **options)
-                    target = _target_path(destination / name, relative, options["image_format"], used[name])
+                    target = _numbered_target(
+                        destination / name,
+                        relative,
+                        options["image_format"],
+                        sequences,
+                        name,
+                    )
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(data)
                     with _folder_lock:
@@ -366,17 +373,31 @@ def _remember_folder_error(job: dict, label: str, exc: Exception) -> None:
         job["errors"].append({"file": label, "message": _folder_error(exc)})
 
 
-def _target_path(destination: Path, relative: Path, image_format: str, used: set[str]) -> Path:
+def _numbered_target(
+    destination: Path,
+    relative: Path,
+    image_format: str,
+    sequences: dict[tuple[str, str], int],
+    format_name: str,
+) -> Path:
     extension = ".png" if image_format == "png" else ".jpg"
-    candidate = relative.with_suffix(extension)
-    key = candidate.as_posix().lower()
-    number = 2
-    while key in used:
-        candidate = relative.with_name(f"{relative.stem}-{number}{extension}")
-        key = candidate.as_posix().lower()
-        number += 1
-    used.add(key)
-    return destination / candidate
+    folder = relative.parent.as_posix()
+    key = (format_name, folder)
+    if key not in sequences:
+        sequences[key] = _next_sequence(destination / relative.parent)
+    number = sequences[key]
+    sequences[key] = number + 1
+    return destination / relative.parent / f"{number}{extension}"
+
+
+def _next_sequence(folder: Path) -> int:
+    highest = 0
+    if folder.is_dir():
+        for path in folder.iterdir():
+            match = _NUMBERED_FILE.fullmatch(path.name)
+            if path.is_file() and match:
+                highest = max(highest, int(match.group(1)))
+    return highest + 1
 
 
 def _list_images(source: Path) -> list[Path]:
