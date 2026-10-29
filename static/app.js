@@ -385,7 +385,13 @@ const folderErrors = document.querySelector("#folder-errors");
 let folderJobId = "";
 let folderWatchGen = 0;
 
+let folderPickBusy = false;
+
 async function chooseFolder(kind, input) {
+  if (folderPickBusy) return;
+  folderPickBusy = true;
+  pickSource.disabled = true;
+  pickDest.disabled = true;
   const previousPlaceholder = input.placeholder;
   input.placeholder = "Čekam izbor foldera…";
   try {
@@ -396,6 +402,9 @@ async function chooseFolder(kind, input) {
     folderProgress.textContent = "Izbor foldera nije uspeo. Nalepi putanju ručno.";
   } finally {
     input.placeholder = previousPlaceholder;
+    folderPickBusy = false;
+    pickSource.disabled = false;
+    pickDest.disabled = false;
   }
 }
 

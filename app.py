@@ -50,6 +50,7 @@ _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".tif", "
 _NUMBERED_FILE = re.compile(r"^(\d+)\.(?:jpg|jpeg|png)$", re.IGNORECASE)
 _folder_jobs: dict[str, dict] = {}
 _folder_lock = threading.Lock()
+_picker_lock = threading.Lock()
 
 
 @app.get("/")
@@ -429,12 +430,17 @@ def _folder_error(exc: Exception) -> str:
 
 
 def _choose_folder(title: str) -> str:
-    """Show the folder dialog over the open browser page."""
-    if sys.platform == "darwin":
-        return _choose_folder_mac(title)
-    if sys.platform == "win32":
-        return _choose_folder_windows(title)
-    return ""
+    """Show one folder dialog and keep it in front so a folder can be selected."""
+    if not _picker_lock.acquire(timeout=300):
+        return ""
+    try:
+        if sys.platform == "darwin":
+            return _choose_folder_mac(title)
+        if sys.platform == "win32":
+            return _choose_folder_windows(title)
+        return ""
+    finally:
+        _picker_lock.release()
 
 
 def _choose_folder_mac(title: str) -> str:
@@ -442,36 +448,49 @@ def _choose_folder_mac(title: str) -> str:
     script = f'''
 use framework "AppKit"
 use scripting additions
-set picked to ""
-set frontName to ""
+set promptText to "{safe}"
+set browsers to {{"Google Chrome", "Safari", "Microsoft Edge", "Brave Browser", "Arc", "Firefox", "Opera", "Vivaldi", "Chromium", "Orion", "Dia"}}
+set chosenApp to ""
 try
     tell application "System Events"
         set frontName to name of first application process whose frontmost is true
     end tell
+    if frontName is in browsers then set chosenApp to frontName
 end try
-if frontName is in {{"osascript", "Python", "python3", "bash", "zsh"}} then
-    set frontName to ""
+if chosenApp is "" then
+    repeat with appName in browsers
+        try
+            if application (appName as text) is running then
+                set chosenApp to appName as text
+                exit repeat
+            end if
+        end try
+    end repeat
 end if
-if frontName is not "" then
+if chosenApp is not "" then
     try
-        tell application frontName
+        tell application chosenApp
             activate
-            set picked to POSIX path of (choose folder with prompt "{safe}")
+            delay 0.15
+            return POSIX path of (choose folder with prompt promptText)
         end tell
-        return picked
-    on error errText number errNum
+    on error number errNum
         if errNum is -128 then return ""
     end try
 end if
+set nsApp to current application's NSApplication's sharedApplication()
+nsApp's setActivationPolicy_(0)
+nsApp's activateIgnoringOtherApps_(true)
+delay 0.15
 set panel to current application's NSOpenPanel's openPanel()
 panel's setCanChooseFiles_(false)
 panel's setCanChooseDirectories_(true)
 panel's setAllowsMultipleSelection_(false)
 panel's setCanCreateDirectories_(true)
-panel's setTitle_("{safe}")
-panel's setMessage_("{safe}")
+panel's setTitle_(promptText)
+panel's setMessage_(promptText)
 panel's setPrompt_("Izaberi")
-panel's setLevel_(101)
+panel's setLevel_(8)
 set response to panel's runModal()
 if (response as integer) is 1 then
     set folderURL to panel's |URL|()
