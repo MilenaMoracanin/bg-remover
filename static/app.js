@@ -54,6 +54,7 @@ const PRESETS = {
 const SWATCHES = ["#ffffff", "#f3f1ec", "#e7e2d6", "#d9d9d9", "#1c1915"];
 
 const files = [];
+const displayUrls = new WeakMap();
 let presetId = "kp";
 let background = PRESETS.kp.background;
 let jobId = "";
@@ -148,13 +149,42 @@ function addFiles(list) {
   updateSpec();
 }
 
+function needsJpegPreview(file) {
+  return /\.heic$|\.heif$/i.test(file.name) || /heic|heif/i.test(file.type);
+}
+
+function displayUrl(file) {
+  const known = displayUrls.get(file);
+  if (known) return known;
+  const pending = needsJpegPreview(file) ? jpegPreview(file) : Promise.resolve(URL.createObjectURL(file));
+  displayUrls.set(file, pending);
+  return pending;
+}
+
+function jpegPreview(file) {
+  const body = new FormData();
+  body.append("file", file);
+  return fetch("/api/preview", { method: "POST", body })
+    .then(async (response) => {
+      if (!response.ok) return "";
+      return URL.createObjectURL(await response.blob());
+    })
+    .catch(() => "");
+}
+
+function paintPreview(img, file) {
+  displayUrl(file).then((url) => {
+    if (url) img.src = url;
+  });
+}
+
 function renderQueue() {
   queue.innerHTML = "";
   files.forEach((file, index) => {
     const item = document.createElement("li");
     const img = document.createElement("img");
-    img.src = URL.createObjectURL(file);
     img.alt = "";
+    paintPreview(img, file);
     const text = document.createElement("div");
     const name = document.createElement("p");
     name.className = "name";
@@ -168,7 +198,6 @@ function renderQueue() {
     remove.textContent = "×";
     remove.setAttribute("aria-label", "Ukloni");
     remove.addEventListener("click", () => {
-      URL.revokeObjectURL(img.src);
       files.splice(index, 1);
       renderQueue();
       updateSpec();
@@ -222,8 +251,8 @@ function resultCard(file, blob, filename, width, height, seconds) {
 
   const before = document.createElement("img");
   before.className = "before";
-  before.src = URL.createObjectURL(file);
   before.alt = "Original";
+  paintPreview(before, file);
 
   const beforeTag = document.createElement("span");
   beforeTag.className = "tag before";

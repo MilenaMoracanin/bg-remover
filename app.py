@@ -24,7 +24,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from engine import Engine, EngineError
 
@@ -141,6 +141,42 @@ async def process(
             "Cache-Control": "no-store",
         },
     )
+
+
+@app.post("/api/preview")
+async def preview(file: UploadFile = File(...)) -> Response:
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Fajl je prazan.")
+    if len(raw) > _MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Slika je veća od 40 MB.")
+    try:
+        jpeg = await asyncio.to_thread(_preview_jpeg, raw)
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise HTTPException(status_code=400, detail="Ovaj fajl nije slika koju mogu da otvorim.") from exc
+    return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+def _preview_jpeg(raw: bytes) -> bytes:
+    with Image.open(BytesIO(raw)) as incoming:
+        incoming.seek(0)
+        frame = ImageOps.exif_transpose(incoming)
+        if frame.mode == "RGBA":
+            base = Image.new("RGB", frame.size, (255, 255, 255))
+            base.paste(frame, mask=frame.getchannel("A"))
+            frame = base
+        else:
+            frame = frame.convert("RGB")
+    long_side = max(frame.size)
+    if long_side > 1280:
+        scale = 1280 / long_side
+        frame = frame.resize(
+            (max(1, int(frame.width * scale)), max(1, int(frame.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+    buf = BytesIO()
+    frame.save(buf, format="JPEG", quality=85, optimize=True)
+    return buf.getvalue()
 
 
 @app.get("/api/jobs/{job_id}/zip")
