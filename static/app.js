@@ -5,7 +5,6 @@ const PRESETS = {
     background: "#ffffff",
     width: 1200,
     height: 1200,
-    shadow: true,
     format: "jpeg",
     anchor: 0.5,
     ratio: "1 / 1",
@@ -16,7 +15,6 @@ const PRESETS = {
     background: "#f3f1ec",
     width: 1080,
     height: 1350,
-    shadow: true,
     format: "jpeg",
     anchor: 0.48,
     ratio: "4 / 5",
@@ -27,7 +25,6 @@ const PRESETS = {
     background: "#ffffff",
     width: 1080,
     height: 1080,
-    shadow: true,
     format: "jpeg",
     anchor: 0.5,
     ratio: "1 / 1",
@@ -38,7 +35,6 @@ const PRESETS = {
     background: "#f6f4ef",
     width: 1080,
     height: 1920,
-    shadow: true,
     format: "jpeg",
     anchor: 0.36,
     ratio: "9 / 16",
@@ -49,7 +45,6 @@ const PRESETS = {
     background: "transparent",
     width: 0,
     height: 0,
-    shadow: false,
     format: "png",
     anchor: 0.5,
     ratio: "1 / 1",
@@ -70,7 +65,6 @@ const presets = document.querySelector("#presets");
 const swatches = document.querySelector("#swatches");
 const colorInput = document.querySelector("#color");
 const colorField = document.querySelector("#color-field");
-const shadowInput = document.querySelector("#shadow");
 const spec = document.querySelector("#spec");
 const runButton = document.querySelector("#run");
 const progress = document.querySelector("#progress");
@@ -126,7 +120,6 @@ function applyPreset(id) {
   presetId = id;
   const preset = PRESETS[id];
   background = preset.background;
-  shadowInput.checked = preset.shadow;
   if (preset.background !== "transparent") colorInput.value = preset.background;
   renderPresets();
   renderSwatches();
@@ -137,12 +130,10 @@ function updateSpec() {
   const preset = selectedPreset();
   const transparent = preset.format === "png" && preset.width === 0;
   colorField.disabled = transparent;
-  shadowInput.disabled = transparent;
   if (transparent) {
     spec.textContent = "PNG bez pozadine, u veličini proizvoda. Pogodno za Canva.";
   } else {
-    const shadow = shadowInput.checked ? "sa senkom" : "bez senke";
-    spec.textContent = `JPEG najvišeg kvaliteta · ${preset.width}×${preset.height} · ${shadow} · beli razmak, ivica ostaje ako je već u kadru`;
+    spec.textContent = `JPEG najvišeg kvaliteta · ${preset.width}×${preset.height} · beli razmak, ivica ostaje ako je već u kadru`;
   }
   runButton.disabled = files.length === 0 || runButton.dataset.busy === "1";
 }
@@ -202,7 +193,6 @@ fileInput.addEventListener("change", () => {
   fileInput.value = "";
 });
 
-shadowInput.addEventListener("change", updateSpec);
 colorInput.addEventListener("input", () => {
   background = colorInput.value.toLowerCase();
   renderSwatches();
@@ -302,7 +292,6 @@ runButton.addEventListener("click", async () => {
     body.append("background", preset.width === 0 ? "transparent" : background);
     body.append("width", String(preset.width));
     body.append("height", String(preset.height));
-    body.append("shadow", shadowInput.checked ? "1" : "0");
     body.append("image_format", preset.format);
     body.append("anchor", String(preset.anchor));
     body.append("label", presetId);

@@ -145,7 +145,6 @@ class Engine:
         background: str,
         width: int,
         height: int,
-        shadow: bool,
         image_format: str,
         anchor: float,
     ) -> tuple[bytes, str, int, int]:
@@ -154,7 +153,6 @@ class Engine:
             background=background,
             width=width,
             height=height,
-            shadow=shadow,
             image_format=image_format,
             anchor=anchor,
         )
@@ -166,7 +164,6 @@ class Engine:
         background: str,
         width: int,
         height: int,
-        shadow: bool,
         image_format: str,
         anchor: float,
     ) -> tuple[bytes, str, int, int]:
@@ -188,7 +185,6 @@ class Engine:
                 width=width,
                 height=height,
                 color=color,
-                shadow=shadow,
                 anchor=anchor,
                 edges=edges,
             )
@@ -280,6 +276,9 @@ class Engine:
         prob = self._infer_probability(rgb)
         prob = _flip_if_background_kept(prob)
         prob = self._refine_subject(rgb, prob)
+        rgb_array = np.asarray(rgb)
+        prob = _restore_flat_cloth(rgb_array, prob)
+        prob = _drop_backdrop_shadow(rgb_array, prob)
         if float(prob.max() - prob.min()) < 1e-6:
             raise EngineError("Model nije mogao da odvoji proizvod od pozadine.")
         return _mask_from_probability(prob)
@@ -380,6 +379,119 @@ def _flip_if_background_kept(prob: np.ndarray) -> np.ndarray:
     if float(border.mean()) > float(center.mean()) + 0.12 and float(border.mean()) > 0.45:
         return 1.0 - prob
     return prob
+
+
+def _dilate_bool(mask: np.ndarray, radius: int) -> np.ndarray:
+    image = Image.fromarray(np.where(mask, np.uint8(255), np.uint8(0)), mode="L")
+    for _ in range(radius):
+        image = image.filter(ImageFilter.MaxFilter(3))
+    return np.asarray(image) > 127
+
+
+def _restore_flat_cloth(rgb: np.ndarray, prob: np.ndarray) -> np.ndarray:
+    """Put back flat fabric the model dropped, without touching the pale backdrop."""
+    foreground = prob > 0.45
+    if foreground.mean() < 0.004 or foreground.mean() > 0.92:
+        return prob
+    # Only the light backdrop, not the gray shadow sitting on it.
+    pale = (prob < 0.25) & (rgb.min(axis=2) > 205)
+    if int(pale.sum()) < 80:
+        return prob
+    backdrop = np.median(rgb[pale].astype(np.float32), axis=0)
+    pixels = rgb.astype(np.float32)
+    distance = np.linalg.norm(pixels - backdrop, axis=2)
+    chroma = pixels / np.clip(pixels.sum(axis=2, keepdims=True), 1, None)
+    backdrop_chroma = backdrop / max(float(backdrop.sum()), 1.0)
+    # A gray shadow keeps the backdrop hue. Flat cloth does not.
+    chroma_gap = np.linalg.norm(chroma - backdrop_chroma, axis=2)
+    fringe = _dilate_bool(pale, max(2, int(min(prob.shape) * 0.004)))
+    kept_color = np.median(rgb[foreground].astype(np.float32), axis=0)
+    kept_chroma = kept_color / max(float(kept_color.sum()), 1.0)
+    gap_cloth = np.linalg.norm(chroma - kept_chroma, axis=2)
+    same_cloth = np.linalg.norm(pixels - kept_color, axis=2) < 55
+    # A cast shadow on white goes cool or stays near the wall hue.
+    # Flat cloth stays with the color the model already kept.
+    blue_excess = (pixels[:, :, 2] - pixels[:, :, 0]) - float(backdrop[2] - backdrop[0])
+    cool = blue_excess > 10
+    if float(foreground.mean()) > 0.22:
+        washed = (pixels.mean(axis=2) > float(kept_color.mean()) + 45) & (chroma_gap + 0.004 < gap_cloth)
+        cool = cool | washed
+    eligible = ~fringe & ~cool & (
+        ((distance > 68) & (chroma_gap > 0.011))
+        | (same_cloth & (distance > 40) & (rgb.min(axis=2) < 200))
+    )
+    if float((eligible & ~foreground).mean()) < 0.05:
+        return prob
+
+    height, width = foreground.shape
+    step = max(1, int(max(height, width) / 360))
+    small_keep = foreground[::step, ::step]
+    allowed = eligible[::step, ::step] | small_keep
+    current = small_keep.copy()
+    for _ in range(max(current.shape) + 2):
+        grown = np.asarray(
+            Image.fromarray((current.astype(np.uint8) * 255), mode="L").filter(ImageFilter.MaxFilter(3))
+        ) > 127
+        nxt = grown & allowed
+        if np.array_equal(nxt, current):
+            break
+        current = nxt
+    reached = np.repeat(np.repeat(current, step, axis=0), step, axis=1)[:height, :width]
+    added = reached & eligible & ~foreground
+    if added.mean() < 0.02:
+        return prob
+    added_color = np.median(rgb[added].astype(np.float32), axis=0)
+    if float(np.linalg.norm(added_color - kept_color)) > 120:
+        return prob
+    restored = prob.copy()
+    restored[added] = 1.0
+    return restored
+
+
+def _drop_backdrop_shadow(rgb: np.ndarray, prob: np.ndarray) -> np.ndarray:
+    """Remove a gray cast shadow that still has the pale backdrop's hue."""
+    foreground = prob > 0.18
+    if foreground.mean() < 0.004:
+        return prob
+    pale = (prob < 0.25) & (rgb.min(axis=2) > 205)
+    if int(pale.sum()) < 80:
+        return prob
+    backdrop = np.median(rgb[pale].astype(np.float32), axis=0)
+    pixels = rgb.astype(np.float32)
+    distance = np.linalg.norm(pixels - backdrop, axis=2)
+    chroma = pixels / np.clip(pixels.sum(axis=2, keepdims=True), 1, None)
+    backdrop_chroma = backdrop / max(float(backdrop.sum()), 1.0)
+    chroma_gap = np.linalg.norm(chroma - backdrop_chroma, axis=2)
+    kept = prob > 0.45
+    cloth_color = np.median(rgb[kept].astype(np.float32), axis=0) if int(kept.sum()) > 80 else backdrop
+    near_cloth = np.linalg.norm(pixels - cloth_color, axis=2) < 42
+    blue_excess = (pixels[:, :, 2] - pixels[:, :, 0]) - float(backdrop[2] - backdrop[0])
+    lighter = pixels.mean(axis=2) > float(cloth_color.mean()) + 28
+    cool = blue_excess > 10
+    neutral = (chroma_gap < 0.02) & (distance < 150)
+    shadow = foreground & ~near_cloth & lighter & (distance > 12) & (cool | neutral)
+    if int(shadow.sum()) < 40:
+        return prob
+
+    height, width = foreground.shape
+    step = max(1, int(max(height, width) / 360))
+    current = pale[::step, ::step].copy()
+    allowed = shadow[::step, ::step] | current
+    for _ in range(max(current.shape) + 2):
+        grown = np.asarray(
+            Image.fromarray((current.astype(np.uint8) * 255), mode="L").filter(ImageFilter.MaxFilter(3))
+        ) > 127
+        nxt = grown & allowed
+        if np.array_equal(nxt, current):
+            break
+        current = nxt
+    reached = np.repeat(np.repeat(current, step, axis=0), step, axis=1)[:height, :width]
+    drop = reached & shadow
+    if int(drop.sum()) < 40:
+        return prob
+    cleaned = prob.copy()
+    cleaned[drop] = 0.0
+    return cleaned
 
 
 def _fill_subject_holes(binary: np.ndarray) -> np.ndarray:
@@ -504,7 +616,6 @@ def _place_on_canvas(
     width: int,
     height: int,
     color: tuple[int, int, int, int],
-    shadow: bool,
     anchor: float,
     edges: tuple[bool, bool, bool, bool] = (False, False, False, False),
 ) -> Image.Image:
@@ -538,20 +649,5 @@ def _place_on_canvas(
     canvas = Image.new("RGBA", (width, height), color)
     x = _axis_origin(width, fitted.width, pin_start=touch_l, pin_end=touch_r)
     y = _axis_origin(height, fitted.height, pin_start=touch_t, pin_end=touch_b)
-
-    if shadow:
-        canvas = _paint_shadow(canvas, fitted, x, y)
     canvas.paste(fitted, (x, y), fitted)
     return canvas
-
-
-def _paint_shadow(canvas: Image.Image, subject: Image.Image, x: int, y: int) -> Image.Image:
-    blur = max(8, int(subject.width * 0.045))
-    alpha = subject.getchannel("A").filter(ImageFilter.GaussianBlur(radius=blur))
-    alpha = alpha.point(lambda px: int(px * 0.22))
-    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    ink = Image.new("RGBA", subject.size, (0, 0, 0, 0))
-    ink.putalpha(alpha)
-    shift = max(6, int(subject.height * 0.018))
-    layer.paste(ink, (x, y + shift), ink)
-    return Image.alpha_composite(canvas, layer)

@@ -255,9 +255,6 @@ legend { font-size: 14px; margin-bottom: 8px; }
 
 fieldset:disabled { opacity: 0.45; }
 
-.check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin-bottom: 8px; }
-.check input { accent-color: #1c1915; width: 16px; height: 16px; }
-
 .spec, .progress {
   min-height: 1.3em;
   margin: 8px 0 12px;
